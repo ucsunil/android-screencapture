@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">android-screencapture</string>
+    <string name="service_action">com.screens.capture.SCREEN_CAPTURE</string>
+    <string name="notify_stop">Stop</string>
+</resources>

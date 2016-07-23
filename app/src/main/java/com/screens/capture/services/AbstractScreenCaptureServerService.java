@@ -201,6 +201,10 @@ public abstract class AbstractScreenCaptureServerService extends Service {
         public void addUrl(String url) {
             urls.add(url);
         }
+
+        public ArrayList<String> getUrls() {
+            return urls;
+        }
     }
 
     @Override

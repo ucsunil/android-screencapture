@@ -2,4 +2,6 @@
     <string name="app_name">android-screencapture</string>
     <string name="service_action">com.screens.capture.SCREEN_CAPTURE</string>
     <string name="notify_stop">Stop</string>
+    <string name="start_viewing">Start Viewing</string>
+    <string name="stop_viewing">Stop Viewing</string>
 </resources>

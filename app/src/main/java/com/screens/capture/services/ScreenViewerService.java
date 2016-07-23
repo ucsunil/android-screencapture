@@ -1,6 +1,7 @@
 package com.screens.capture.services;
 
 import android.app.Notification;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
@@ -20,6 +21,9 @@ import com.koushikdutta.async.http.server.AsyncHttpServer;
 import com.koushikdutta.async.http.server.AsyncHttpServerRequest;
 import com.koushikdutta.async.http.server.AsyncHttpServerResponse;
 import com.koushikdutta.async.http.server.HttpServerRequestCallback;
+import com.screens.capture.MainActivity;
+import com.screens.capture.R;
+import com.screens.capture.utils.ScreenProvider;
 
 import java.io.ByteArrayInputStream;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,6 +36,7 @@ public class ScreenViewerService extends AbstractScreenCaptureServerService {
                                             DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
+    private ScreenProvider screenProvider;
 
     private final HandlerThread handlerThread = new HandlerThread(getClass().getSimpleName(),
                                                     Process.THREAD_PRIORITY_BACKGROUND);
@@ -60,10 +65,38 @@ public class ScreenViewerService extends AbstractScreenCaptureServerService {
     }
 
     @Override
-    protected void buildForegroundNotification(Notification.Builder builder) {
-        Intent intent = new Intent(this, MainActivity.class) {
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        projection = manager.getMediaProjection(intent.getIntExtra(RESULT_CODE, -1),
+                (Intent)intent.getParcelableExtra(RESULT_INTENT));
+        screenProvider = new ScreenProvider(this);
 
-        }
+        MediaProjection.Callback callback = new MediaProjection.Callback() {
+            @Override
+            public void onStop() {
+                virtualDisplay.release();
+            }
+        };
+
+        virtualDisplay = projection.createVirtualDisplay("screencapture", screenProvider.getWidth(),
+                screenProvider.getHeight(), getResources().getDisplayMetrics().densityDpi,
+                DISPLAY_FLAGS, screenProvider.getSurface(), null, handler);
+        projection.registerCallback(callback, handler);
+        return START_NOT_STICKY;
+    }
+
+    @Override
+    protected void buildForegroundNotification(Notification.Builder builder) {
+        Intent intent = new Intent(this, MainActivity.class);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, intent, 0);
+        builder.setContentTitle(getString(R.string.app_name))
+                .setContentIntent(pi)
+                .setSmallIcon(R.mipmap.ic_launcher);
+    }
+
+    @Override
+    public void onDestroy() {
+        projection.stop();
+        super.onDestroy();
     }
 
     @Override
@@ -89,7 +122,7 @@ public class ScreenViewerService extends AbstractScreenCaptureServerService {
     }
 
     public WindowManager getWindowManager() {
-        return getWindowManager();
+        return windowManager;
     }
 
     public Handler getHandler() {
@@ -114,4 +147,5 @@ public class ScreenViewerService extends AbstractScreenCaptureServerService {
             response.sendStream(bais, pic.length);
         }
     }
+
 }

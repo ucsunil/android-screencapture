@@ -46,7 +46,6 @@ public class MainActivity extends ListActivity {
     @Override
     protected void onPause() {
         EventBus.getDefault().unregister(this);
-
         super.onPause();
     }
 
@@ -87,9 +86,9 @@ public class MainActivity extends ListActivity {
             if (resultCode==RESULT_OK) {
                 Intent intent=
                         new Intent(this, ScreenViewerService.class)
-                                .putExtra(ScreenViewerService.RESULT_CODE,
+                                .putExtra(ScreenViewerService.EXTRA_RESULT_CODE,
                                         resultCode)
-                                .putExtra(ScreenViewerService.RESULT_INTENT,
+                                .putExtra(ScreenViewerService.EXTRA_RESULT_INTENT,
                                         data);
 
                 startService(intent);
@@ -117,5 +116,11 @@ public class MainActivity extends ListActivity {
 
         setListAdapter(new ArrayAdapter<String>(this,
                 android.R.layout.simple_list_item_1, event.getUrls()));
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        //EventBus.getDefault().unregister(this);
     }
 }

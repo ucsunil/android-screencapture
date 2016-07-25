@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.projection.MediaProjection;
@@ -13,6 +14,7 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.SystemClock;
+import android.support.v4.app.NotificationCompat;
 import android.view.Surface;
 import android.view.WindowManager;
 
@@ -30,122 +32,146 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class ScreenViewerService extends AbstractScreenCaptureServerService {
 
-    public static final String RESULT_CODE = "resultCode";
-    public static final String RESULT_INTENT = "resultIntent";
-    public static final int DISPLAY_FLAGS = DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY |
-                                            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
+    public static final String EXTRA_RESULT_CODE="resultCode";
+    public static final String EXTRA_RESULT_INTENT="resultIntent";
+    static final int VIRT_DISPLAY_FLAGS=
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY |
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
     private MediaProjection projection;
-    private VirtualDisplay virtualDisplay;
-    private ScreenProvider screenProvider;
-
-    private final HandlerThread handlerThread = new HandlerThread(getClass().getSimpleName(),
-                                                    Process.THREAD_PRIORITY_BACKGROUND);
+    private VirtualDisplay vdisplay;
+    final private HandlerThread handlerThread=new HandlerThread(getClass().getSimpleName(),
+            android.os.Process.THREAD_PRIORITY_BACKGROUND);
     private Handler handler;
-    private AtomicReference<byte[]> latestPic = new AtomicReference<byte[]>();
-    private MediaProjectionManager manager;
-    private WindowManager windowManager;
-
-    public ScreenViewerService() {
-    }
+    private AtomicReference<byte[]> latestPng=new AtomicReference<byte[]>();
+    private MediaProjectionManager mgr;
+    private WindowManager wmgr;
+    private ScreenProvider it;
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        mgr=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
+        wmgr=(WindowManager)getSystemService(WINDOW_SERVICE);
+
         handlerThread.start();
-        handler = new Handler(handlerThread.getLooper());
+        handler=new Handler(handlerThread.getLooper());
     }
 
     @Override
-    public IBinder onBind(Intent intent) {
-        // TODO: Return the communication channel to the service.
-        throw new UnsupportedOperationException("Not yet implemented");
-    }
+    public int onStartCommand(Intent i, int flags, int startId) {
+        projection=
+                mgr.getMediaProjection(i.getIntExtra(EXTRA_RESULT_CODE, -1),
+                        (Intent)i.getParcelableExtra(EXTRA_RESULT_INTENT));
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        projection = manager.getMediaProjection(intent.getIntExtra(RESULT_CODE, -1),
-                (Intent)intent.getParcelableExtra(RESULT_INTENT));
-        screenProvider = new ScreenProvider(this);
+        it=new ScreenProvider(this);
 
-        MediaProjection.Callback callback = new MediaProjection.Callback() {
+        MediaProjection.Callback cb=new MediaProjection.Callback() {
             @Override
             public void onStop() {
-                virtualDisplay.release();
+                vdisplay.release();
             }
         };
 
-        virtualDisplay = projection.createVirtualDisplay("screencapture", screenProvider.getWidth(),
-                screenProvider.getHeight(), getResources().getDisplayMetrics().densityDpi,
-                DISPLAY_FLAGS, screenProvider.getSurface(), null, handler);
-        projection.registerCallback(callback, handler);
-        return START_NOT_STICKY;
-    }
+        vdisplay=projection.createVirtualDisplay("andprojector",
+                it.getWidth(), it.getHeight(),
+                getResources().getDisplayMetrics().densityDpi,
+                VIRT_DISPLAY_FLAGS, it.getSurface(), null, handler);
+        projection.registerCallback(cb, handler);
 
-    @Override
-    protected void buildForegroundNotification(Notification.Builder builder) {
-        Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent pi = PendingIntent.getActivity(this, 0, intent, 0);
-        builder.setContentTitle(getString(R.string.app_name))
-                .setContentIntent(pi)
-                .setSmallIcon(R.mipmap.ic_launcher);
+        return(START_NOT_STICKY);
     }
 
     @Override
     public void onDestroy() {
         projection.stop();
+
         super.onDestroy();
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        ScreenProvider newIt=new ScreenProvider(this);
+
+        if (newIt.getWidth()!=it.getWidth() ||
+                newIt.getHeight()!=it.getHeight()) {
+            ScreenProvider oldIt=it;
+
+            it=newIt;
+            vdisplay.resize(it.getWidth(), it.getHeight(),
+                    getResources().getDisplayMetrics().densityDpi);
+            vdisplay.setSurface(it.getSurface());
+
+            oldIt.close();
+        }
     }
 
     @Override
     protected boolean configureRoutes(AsyncHttpServer server) {
         serveWebSockets("/ss", null);
-        server.get(getRootPath() + "/screen/.*", new ScreenshotRequestCallback());
-        return true;
+
+        server.get(getRootPath()+"/screen/.*",
+                new ScreenshotRequestCallback());
+
+        return(true);
     }
 
     @Override
     protected int getPort() {
-        return 8080;
+        return(4999);
     }
-
+/*
     @Override
     protected int getMaxIdleTimeSeconds() {
-        return 120;
+        return(120);
     }
-
+*/
     @Override
     protected int getMaxSequentialInvalidRequests() {
-        return 10;
+        return(10);
     }
 
     public WindowManager getWindowManager() {
-        return windowManager;
+        return(wmgr);
     }
 
     public Handler getHandler() {
-        return handler;
+        return(handler);
     }
 
+    public void updateImage(byte[] newPng) {
+        latestPng.set(newPng);
 
-    public void updateImage(byte[] newPic) {
-        latestPic.set(newPic);
-
-        for(WebSocket socket : getWebsockets()) {
-            socket.send("screen/" + Long.toString(SystemClock.uptimeMillis()));
+        for (WebSocket socket : getWebSockets()) {
+            socket.send("screen/"+Long.toString(SystemClock.uptimeMillis()));
         }
     }
 
-    private class ScreenshotRequestCallback implements HttpServerRequestCallback {
+    @Override
+    protected void buildForegroundNotification(NotificationCompat.Builder builder) {
+        Intent iActivity=new Intent(this, MainActivity.class);
+        PendingIntent piActivity=PendingIntent.getActivity(this, 0,
+                iActivity, 0);
+
+        builder.setContentTitle(getString(R.string.app_name))
+                .setContentIntent(piActivity)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setTicker(getString(R.string.app_name));
+    }
+
+    private class ScreenshotRequestCallback
+            implements HttpServerRequestCallback {
         @Override
-        public void onRequest(AsyncHttpServerRequest request, AsyncHttpServerResponse response) {
+        public void onRequest(AsyncHttpServerRequest request,
+                              AsyncHttpServerResponse response) {
             response.setContentType("image/png");
-            byte[] pic = latestPic.get();
-            ByteArrayInputStream bais = new ByteArrayInputStream(pic);
-            response.sendStream(bais, pic.length);
+
+            byte[] png=latestPng.get();
+            ByteArrayInputStream bais=new ByteArrayInputStream(png);
+
+            response.sendStream(bais, png.length);
         }
     }
-
 }
